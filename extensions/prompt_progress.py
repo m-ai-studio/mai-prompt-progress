@@ -137,7 +137,7 @@ def send_progress_update(prompt_id, value):
 
 
 # ===========================================================
-# Entend server send method
+# Extend server send method
 # ===========================================================
 
 original_send = server.PromptServer.send
