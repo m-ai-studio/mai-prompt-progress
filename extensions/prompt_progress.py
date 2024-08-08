@@ -35,10 +35,9 @@ class PromptKeys:
     CURRENT_NODE = "current_node"
     NODES = "nodes"
     NODE_PROGRESS = "node_progress"
+    HOOK_URL = "hook_url"
 
 
-hook_url_key = "PROGRESS_HOOK_URL"
-hook_url = os.environ.get(hook_url_key)
 prompts_map = {}
 
 
@@ -60,6 +59,7 @@ def handle_execution_start(data, sid):
                     PromptKeys.NODES: {
                         node: {PromptKeys.NODE_PROGRESS: 0} for node in nodes
                     },
+                    PromptKeys.HOOK_URL: prompt_data[3].get("progress_hook_url"),
                 }
                 break
 
@@ -129,11 +129,14 @@ def send_progress_update(prompt_id, value):
 
     # Send progress update to hook
     sid = prompts_map.get(prompt_id, {}).get(PromptKeys.SID)
-    try:
-        response = requests.post(hook_url, json={"value": value, "sid": sid})
-        response.raise_for_status()
-    except requests.RequestException as e:
-        logging.error(f"Progress extension hook request error: {e}")
+    hook_url = prompts_map.get(prompt_id, {}).get(PromptKeys.HOOK_URL)
+
+    if sid and hook_url:
+        try:
+            response = requests.post(hook_url, json={"value": value, "sid": sid})
+            response.raise_for_status()
+        except requests.RequestException as e:
+            logging.error(f"Progress extension hook request error: {e}")
 
 
 # ===========================================================
@@ -162,9 +165,4 @@ async def custom_send(self, event, data, sid=None):
     await original_send(self, event, data, sid)
 
 
-if hook_url is None:
-    logging.error(
-        f"{hook_url_key} env variable is not set. Skipping MAI prompt progress extension."
-    )
-else:
-    server.PromptServer.send = custom_send
+server.PromptServer.send = custom_send
