@@ -1,14 +1,7 @@
 import server
 import logging
-import os
-from dotenv import load_dotenv
 import requests
 
-# ===========================================================
-# Init variables
-# ===========================================================
-
-load_dotenv()
 
 # ===========================================================
 # Variables
