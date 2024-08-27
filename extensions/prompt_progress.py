@@ -1,7 +1,8 @@
 import server
 import logging
 import requests
-
+import asyncio
+import struct
 
 # ===========================================================
 # Variables
@@ -27,7 +28,8 @@ class PromptKeys:
     CURRENT_NODE = "current_node"
     NODES = "nodes"
     NODE_PROGRESS = "node_progress"
-    HOOK_URL = "hook_url"
+    PROGRESS_HOOK_URL = "progress_hook_url"
+    PREVIEW_HOOK_URL = "preview_hook_url"
 
 
 prompts_map = {}
@@ -48,7 +50,8 @@ def handle_execution_start(sid):
                 PromptKeys.NODES: {
                     node: {PromptKeys.NODE_PROGRESS: 0} for node in nodes
                 },
-                PromptKeys.HOOK_URL: prompt_data[3].get("progress_hook_url"),
+                PromptKeys.PROGRESS_HOOK_URL: prompt_data[3].get("progress_hook_url"),
+                PromptKeys.PREVIEW_HOOK_URL: prompt_data[3].get("preview_hook_url"),
             }
             break
 
@@ -112,7 +115,7 @@ def send_progress_update(sid, value):
     print(f"Progress: {percentage}%")
 
     # Send progress update to hook
-    hook_url = prompts_map.get(sid, {}).get(PromptKeys.HOOK_URL)
+    hook_url = prompts_map.get(sid, {}).get(PromptKeys.PROGRESS_HOOK_URL)
 
     if sid and hook_url:
         try:
@@ -124,11 +127,25 @@ def send_progress_update(sid, value):
 
 def send_preview_image(sid, data):
     # Send preview image to hook
-    hook_url = prompts_map.get(sid, {}).get(PromptKeys.HOOK_URL)
+    hook_url = prompts_map.get(sid, {}).get(PromptKeys.PREVIEW_HOOK_URL)
 
     if sid and hook_url:
         try:
-            response = requests.post(hook_url, json={"sid": sid}, files={"image": data})
+            # Extract image type from the header
+            type_num = struct.unpack(">I", data[:4])[0]
+            image_type = "jpeg" if type_num == 1 else "png"
+
+            # Remove the header from the image data
+            image_data = data[4:]
+            files = {
+                "image": (
+                    f"preview.{image_type}",
+                    image_data,
+                    f"image/{image_type}",
+                )
+            }
+            data = {"sid": sid}
+            response = requests.post(hook_url, files=files, data=data)
             response.raise_for_status()
         except requests.RequestException as e:
             logging.error(f"Progress extension hook request error: {e}")
@@ -174,7 +191,7 @@ async def custom_send_bytes(self, event, data, sid=None):
     if sid:
         try:
             if event == server.BinaryEventTypes.PREVIEW_IMAGE:
-                send_preview_image(sid, self.encode_bytes(event, data))
+                await asyncio.to_thread(send_preview_image(sid, data))
         except Exception as e:
             logging.error(f"Progress extension image preview error: {e}")
 
