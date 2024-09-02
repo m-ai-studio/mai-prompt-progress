@@ -191,7 +191,10 @@ async def custom_send_bytes(self, event, data, sid=None):
     if sid:
         try:
             if event == server.BinaryEventTypes.PREVIEW_IMAGE:
-                await asyncio.to_thread(send_preview_image(sid, data))
+                try:
+                    await asyncio.to_thread(send_preview_image, sid, data)
+                except Exception as e:
+                    logging.error(f"Error in asyncio.to_thread: {e}")
         except Exception as e:
             logging.error(f"Progress extension image preview error: {e}")
 
