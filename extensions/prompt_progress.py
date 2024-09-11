@@ -84,7 +84,10 @@ def handle_progress(data, sid):
 
 
 def handle_executed(data, sid):
-    if data.get("output", {}).get("images", [{}])[0].get("type") == "output":
+    output = data.get("output")
+    if output is None:
+        return
+    if output.get("images", [{}])[0].get("type") == "output":
         prompts_map.pop(sid, None)
 
 
