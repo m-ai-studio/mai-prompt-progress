@@ -28,6 +28,7 @@ class PromptKeys:
     CURRENT_NODE = "current_node"
     NODES = "nodes"
     NODE_PROGRESS = "node_progress"
+    NODE_CLASS_TYPE = "class_type"
     PROGRESS_HOOK_URL = "progress_hook_url"
     PREVIEW_HOOK_URL = "preview_hook_url"
 
@@ -44,11 +45,17 @@ def handle_execution_start(sid):
     prompt_queue = server.PromptServer.instance.prompt_queue
     for prompt_data in prompt_queue.currently_running.values():
         if prompt_data[3].get(DataKeys.CLIENT_ID) == sid:
-            nodes = prompt_data[2].keys()
+            nodes = prompt_data[2]
             prompts_map[sid] = {
                 PromptKeys.CURRENT_NODE: None,
                 PromptKeys.NODES: {
-                    node: {PromptKeys.NODE_PROGRESS: 0} for node in nodes
+                    node_id: {
+                        PromptKeys.NODE_PROGRESS: 0,
+                        PromptKeys.NODE_CLASS_TYPE: nodes[node_id].get(
+                            PromptKeys.NODE_CLASS_TYPE
+                        ),
+                    }
+                    for node_id in nodes.keys()
                 },
                 PromptKeys.PROGRESS_HOOK_URL: prompt_data[3].get("progress_hook_url"),
                 PromptKeys.PREVIEW_HOOK_URL: prompt_data[3].get("preview_hook_url"),
@@ -113,10 +120,6 @@ def progress_updated(sid):
 
 
 def send_progress_update(sid, value):
-    # Debug info
-    percentage = round(value * 100, 1)
-    print(f"Progress: {percentage}%")
-
     # Send progress update to hook
     hook_url = prompts_map.get(sid, {}).get(PromptKeys.PROGRESS_HOOK_URL)
 
@@ -130,7 +133,8 @@ def send_progress_update(sid, value):
 
 def send_preview_image(sid, data):
     # Send preview image to hook
-    hook_url = prompts_map.get(sid, {}).get(PromptKeys.PREVIEW_HOOK_URL)
+    map_data = prompts_map.get(sid, {})
+    hook_url = map_data.get(PromptKeys.PREVIEW_HOOK_URL)
 
     if sid and hook_url:
         try:
@@ -147,7 +151,13 @@ def send_preview_image(sid, data):
                     f"image/{image_type}",
                 )
             }
-            data = {"sid": sid}
+            current_node = map_data.get(PromptKeys.CURRENT_NODE)
+            current_class_type = (
+                map_data.get(PromptKeys.NODES, {})
+                .get(current_node, {})
+                .get(PromptKeys.NODE_CLASS_TYPE)
+            )
+            data = {"sid": sid, "current_class_type": current_class_type}
             response = requests.post(hook_url, files=files, data=data)
             response.raise_for_status()
         except requests.RequestException as e:
