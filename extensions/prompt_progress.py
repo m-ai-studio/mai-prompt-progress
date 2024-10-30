@@ -1,7 +1,8 @@
+import asyncio
+import aiohttp
 import server
 import logging
 import requests
-import asyncio
 import struct
 
 # ===========================================================
@@ -102,10 +103,10 @@ def update_node_progress(sid, node_id, value):
     node_data = prompts_map.get(sid, {}).get(PromptKeys.NODES, {}).get(node_id)
     if node_data:
         prompts_map[sid][PromptKeys.NODES][node_id][PromptKeys.NODE_PROGRESS] = value
-        progress_updated(sid)
+        asyncio.create_task(progress_updated(sid))
 
 
-def progress_updated(sid):
+async def progress_updated(sid):
     map_data = prompts_map.get(sid)
     if map_data:
         total_nodes = len(map_data.get(PromptKeys.NODES))
@@ -116,22 +117,25 @@ def progress_updated(sid):
             )
             / total_nodes
         )
-        send_progress_update(sid, progress)
+        await send_progress_update(sid, progress)
 
 
-def send_progress_update(sid, value):
+async def send_progress_update(sid, value):
     # Send progress update to hook
     hook_url = prompts_map.get(sid, {}).get(PromptKeys.PROGRESS_HOOK_URL)
 
     if sid and hook_url:
         try:
-            response = requests.post(hook_url, json={"sid": sid, "value": value})
-            response.raise_for_status()
-        except requests.RequestException as e:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    hook_url, json={"sid": sid, "value": value}
+                ) as response:
+                    response.raise_for_status()
+        except Exception as e:
             logging.error(f"Progress extension hook request error: {e}")
 
 
-def send_preview_image(sid, data):
+async def send_preview_image(sid, data):
     # Send preview image to hook
     map_data = prompts_map.get(sid, {})
     hook_url = map_data.get(PromptKeys.PREVIEW_HOOK_URL)
@@ -144,23 +148,30 @@ def send_preview_image(sid, data):
 
             # Remove the header from the image data
             image_data = data[4:]
-            files = {
-                "image": (
-                    f"preview.{image_type}",
-                    image_data,
-                    f"image/{image_type}",
-                )
-            }
+
+            # Prepare form data
             current_node = map_data.get(PromptKeys.CURRENT_NODE)
             current_class_type = (
                 map_data.get(PromptKeys.NODES, {})
                 .get(current_node, {})
                 .get(PromptKeys.NODE_CLASS_TYPE)
             )
-            data = {"sid": sid, "current_class_type": current_class_type}
-            response = requests.post(hook_url, files=files, data=data)
-            response.raise_for_status()
-        except requests.RequestException as e:
+
+            # Use aiohttp for async HTTP request
+            async with aiohttp.ClientSession() as session:
+                form = aiohttp.FormData()
+                form.add_field(
+                    "image",
+                    image_data,
+                    filename=f"preview.{image_type}",
+                    content_type=f"image/{image_type}",
+                )
+                form.add_field("sid", sid)
+                form.add_field("current_class_type", current_class_type)
+
+                async with session.post(hook_url, data=form) as response:
+                    response.raise_for_status()
+        except aiohttp.ClientError as e:
             logging.error(f"Progress extension hook request error: {e}")
 
 
@@ -204,10 +215,7 @@ async def custom_send_bytes(self, event, data, sid=None):
     if sid:
         try:
             if event == server.BinaryEventTypes.PREVIEW_IMAGE:
-                try:
-                    await asyncio.to_thread(send_preview_image, sid, data)
-                except Exception as e:
-                    logging.error(f"Error in asyncio.to_thread: {e}")
+                await send_preview_image(sid, data)
         except Exception as e:
             logging.error(f"Progress extension image preview error: {e}")
 
